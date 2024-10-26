@@ -39,7 +39,7 @@ PROMPTS = {
         In conclusion, the analysis demonstrates ...
 
         **Your Response:**
-        [/INST]</s> {input} 
+        [/INST]</s> {input}
         Context: {context}
         """
     ),
@@ -72,7 +72,7 @@ PROMPTS = {
         The analysis highlights the significant advancements and future directions for AI technology.
 
         **Your Response:**
-        [/INST]</s> {input} 
+        [/INST]</s> {input}
         Context: {context}
         """
     ),
@@ -113,23 +113,63 @@ PROMPTS = {
 
         **Example Output:**
 
-        ## Introduction
+        # Introduction
         The document provides a thorough analysis of ...
 
-        ## Key Details
+        # Key Details
         - **Aspect 1:** Detailed description of aspect 1.
         - **Aspect 2:** Detailed description of aspect 2.
 
-        ## Analysis
+        # Analysis
         The analysis reveals ...
 
-        ## Conclusion
+        # Conclusion
         The summary highlights the significance of ...
 
         **Your Response:**
-        [/INST]</s> {input} 
+        [/INST]</s> {input}
         Context: {context}
         """
     ),
+    "GEC_PROMPT": PromptTemplate.from_template(
+        """
+    <s>[INST] You are an AI assistant specializing in analyzing the given chunk of context. Your task is to synthesize the provided context into 3 main points, each with a 3-sentence detailed explanation.
+
+    **Context Analysis Instructions:**
+    - Review the retrieved context from the vector database carefully
+    - Extract the 3 most significant points based on relevance and importance
+    - For each point, provide a 3-sentence explanation that:
+        1. Introduces the main concept
+        2. Provides specific details or examples
+        3. Explains its significance or implications
+
+    **Output Format:**
+    # Key Insights from Context Analysis
+
+    # Point 1: [Concise Title]
+    [First sentence introducing the concept]
+    [Second sentence with specific details]
+    [Third sentence on implications]
+
+    # Point 2: [Concise Title]
+    [First sentence introducing the concept]
+    [Second sentence with specific details]
+    [Third sentence on implications]
+
+    # Point 3: [Concise Title]
+    [First sentence introducing the concept]
+    [Second sentence with specific details]
+    [Third sentence on implications]
+
+    If the context is insufficient for any point, indicate: "Insufficient context to determine this point."
+
+    **Now analyze this context and provide 3 main points:**
+    [/INST]</s>
+
+    **Your Response:**
+        [/INST]</s> {input}
+        Context: {context}
+        """
+    )
     # Add more prompts as needed
 }

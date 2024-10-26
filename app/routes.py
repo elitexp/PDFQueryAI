@@ -1,7 +1,9 @@
 
 
+import nlpaug.augmenter.char as nac
 from flask import Flask, request, jsonify, render_template, Blueprint, send_from_directory
 from langchain_community.llms import Ollama
+from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
@@ -12,11 +14,16 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains.history_aware_retriever import create_history_aware_retriever
 from .prompts import PROMPTS
-
+from semantic_chunkers import StatisticalChunker
+import langchain_core
+import json
 import os
 import shutil
 import hashlib
 import logging
+import matplotlib
+
+aug = nac.OcrAug(aug_char_p=0.4, aug_word_p=0.6)
 
 # Define a blueprint
 bp = Blueprint('main', __name__)
@@ -34,7 +41,12 @@ query_usage_count = {}
 chat_history = []
 
 # Initialize the Ollama model
-cached_llm = Ollama(model="llama3.1")
+# cached_llm = Ollama(model="llama3.1")
+cached_llm = ChatOpenAI(
+    model_name="gpt-4o-mini",  # or "gpt-4" if you have access
+    temperature=0.7,
+    max_tokens=500
+)
 
 # Initialize the embedding model
 embedding = FastEmbedEmbeddings()
@@ -46,6 +58,7 @@ text_splitter = RecursiveCharacterTextSplitter(
     length_function=len,
     is_separator_regex=False
 )
+
 
 def initialize_vector_store():
     if not os.path.exists(folder_path):
@@ -62,13 +75,16 @@ def initialize_vector_store():
         print(f"Error initializing vector store: {str(e)}")
         return None
 
+
 initialize_vector_store()
 
 if not os.path.exists(folder_path):
     print(f"Error: Directory {folder_path} does not exist.")
 
+
 def file_exists(file_path):
     return os.path.isfile(file_path)
+
 
 def compute_file_hash(file):
     """Compute the MD5 hash of a file."""
@@ -85,19 +101,23 @@ if not os.path.exists(folder_path):
 if not os.path.exists(pdf_dir):
     os.makedirs(pdf_dir)
 
+
 def preprocess_text(text):
     # Implement text cleaning steps
     text = text.strip().replace('\n', ' ').replace('\r', '')
     return text
+
 
 class Document:
     def __init__(self, page_content, metadata=None):
         self.page_content = page_content
         self.metadata = metadata or {}
 
+
 @bp.route('/')
 def home():
     return render_template('index.html')
+
 
 @bp.route('/prompts', methods=['GET'])
 def get_prompts():
@@ -117,11 +137,12 @@ def pdfManagement():
         vector_store = Chroma(persist_directory="data/db", embedding_function=embedding)
         db_data = vector_store.get()
         document_count = len(db_data.get("metadatas", []))
-        
+
         return render_template("pdfManagement.html", pdf_count=len(pdf_files), doc_count=document_count)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
+
 @bp.route("/ai", methods=["POST"])
 def aiPost():
     query_usage_count = {}
@@ -141,9 +162,10 @@ def aiPost():
     response_answer = {"answer": response}
     return jsonify(response_answer)
 
+
 @bp.route("/ask_pdf", methods=["POST"])
 def askPDFPost():
-    query_usage_count = {}# Added for tracking PDF usage count
+    query_usage_count = {}  # Added for tracking PDF usage count
     print("POST /ask_pdf called")
 
     json_content = request.json
@@ -255,12 +277,14 @@ def create_context_with_metadata(documents):
         })
     return contexts
 
+
 @bp.route("/clear_chat_history", methods=["POST"])
 def clear_chat_history():
     global chat_history
     chat_history = []
     print("Chat history cleared")
     return jsonify({"status": "Chat history cleared successfully"})
+
 
 @bp.route("/clear_db", methods=["POST"])
 def clear_db():
@@ -281,6 +305,7 @@ def clear_db():
         logging.error(f"Error during clear_db operation: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+
 def clear_directory(directory_path):
     """
     Clears the specified directory by removing it and then recreating it.
@@ -289,6 +314,7 @@ def clear_directory(directory_path):
         shutil.rmtree(directory_path)
         os.makedirs(directory_path)
         logging.info(f"Directory cleared: {directory_path}")
+
 
 def clear_vector_store():
     """
@@ -318,12 +344,12 @@ def clear_vector_store():
             logging.info("Successfully deleted all documents and persisted changes.")
         else:
             logging.info("No documents found in vector store to delete.")
-    
+
     except Exception as e:
         logging.error(f"Error during vector store clearing: {str(e)}")
         raise
 
-    
+
 @bp.route("/list_pdfs", methods=["GET"])
 def list_pdfs():
     print("GET /list_pdfs called")
@@ -334,7 +360,8 @@ def list_pdfs():
         return jsonify({"pdf_files": pdf_files})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
+
 @bp.route("/pdf", methods=["POST"])
 def pdfPost():
     if 'file' not in request.files:
@@ -394,20 +421,34 @@ def pdfPost():
             return jsonify({"error": f"Error during OCR processing: {str(e)}"}), 500
     else:
         # Preprocess text from documents
-        docs = [Document(page_content=preprocess_text(doc.page_content), metadata={"source": file_name}) for doc in docs]
+        docs = [Document(page_content=preprocess_text(doc.page_content),
+                         metadata={"source": file_name}) for doc in docs]
 
     try:
-        chunks = text_splitter.split_documents(docs)
-        print(f"Loaded len={len(chunks)} chunks")
-
-        # Add source metadata to each chunk
-        for chunk in chunks:
+        text_chunks = text_splitter.split_documents(docs)
+        for chunk in text_chunks:
             chunk.metadata = {"source": file_name}
+        from semantic_router.encoders import OpenAIEncoder
+        encoder = OpenAIEncoder(name="text-embedding-3-small")
+        chunker = StatisticalChunker(encoder=encoder, max_split_tokens=4096)
+        # Ensure non-empty content
+        semantic_chunks = chunker(docs=[doc.page_content for doc in docs if doc.page_content])
+        print("Semantic Length:" + str(len(semantic_chunks)))
+        matplotlib.use('Agg')
+        semantic_documents = list()
+        for chunk_items in semantic_chunks:
+            for chunk_item in chunk_items:
+                page_content = "\n".join(chunk_item.splits)
+                document = langchain_core.documents.base.Document(
+                    page_content=str(page_content), metadata={"source": file_name})
+                semantic_documents.append(document)
+
         global vector_store
         # Initialize the vector store
         vector_store = Chroma.from_documents(
-            documents=chunks, embedding=embedding, persist_directory=folder_path
+            documents=semantic_documents, embedding=embedding, persist_directory=folder_path
         )
+        print("Initialized vector store !!")
     except Exception as e:
         return jsonify({"error": f"Error initializing vector store: {str(e)}"}), 500
 
@@ -421,7 +462,7 @@ def pdfPost():
     return jsonify(response)
 
 
-@bp.route("/list_documents", methods=["GET"])
+@ bp.route("/list_documents", methods=["GET"])
 def list_documents():
 
     try:
@@ -464,7 +505,8 @@ def list_documents():
         print(f"Error listing documents: {e}")
         return jsonify({"error": "An error occurred while listing documents. Please try again later."}), 500
 
-@bp.route("/delete_pdf", methods=["POST"])
+
+@ bp.route("/delete_pdf", methods=["POST"])
 def delete_pdf():
     json_content = request.json
     file_name = json_content.get("file_name")
@@ -489,14 +531,15 @@ def delete_pdf():
         print(f"db_data: {db_data}")
         metadatas = db_data.get("metadatas", [])
         ids = db_data.get("ids", [])
-        
+
         # Log the number of documents and sample metadata
         print(f"Found {len(metadatas)} documents in vector store")
         if metadatas:
             print(f"Sample metadata: {metadatas[0]}")
 
         # Find and delete documents with the matching source path
-        docs_to_delete = [id for id, metadata in zip(ids, metadatas) if metadata.get("source").strip().lower() == path_pattern.strip().lower()]
+        docs_to_delete = [id for id, metadata in zip(ids, metadatas) if metadata.get(
+            "source").strip().lower() == path_pattern.strip().lower()]
         print(f"Documents to delete: {docs_to_delete}")
 
         if docs_to_delete:
@@ -521,17 +564,19 @@ def delete_pdf():
         else:
             print(f"File not found: {file_path}")
             return jsonify({"error": "File not found"}), 404
-        
+
         return jsonify({"status": "success"})
     except Exception as e:
         print(f"Error during deletion: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@bp.route('/pdfs/<path:filename>')
+
+@ bp.route('/pdfs/<path:filename>')
 def serve_pdf(filename):
     return send_from_directory(PDF_DIRECTORY, filename)
 
-@bp.route("/delete_document", methods=["POST"])
+
+@ bp.route("/delete_document", methods=["POST"])
 def delete_document():
     print("POST /delete_document called")
     json_content = request.json
@@ -547,20 +592,24 @@ def delete_document():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 def perform_ocr(pdf_path):
     # Placeholder function for OCR processing
     # You can implement this using libraries like pytesseract or other OCR tools
     return "OCR processed text from PDF"
 
-@bp.route("/pdf_usage", methods=["GET"])
+
+@ bp.route("/pdf_usage", methods=["GET"])
 def get_pdf_usage():
     try:
         # Calculate percentage influence
         total_queries = sum(pdf_usage_count.values())
-        pdf_influence = {pdf: {"count": count, "percentage": (count / total_queries * 100) if total_queries > 0 else 0} for pdf, count in pdf_usage_count.items()}
+        pdf_influence = {pdf: {"count": count, "percentage": (
+            count / total_queries * 100) if total_queries > 0 else 0} for pdf, count in pdf_usage_count.items()}
         return jsonify({"pdf_usage": pdf_influence})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, filename='app.log', filemode='a')
