@@ -48,9 +48,9 @@
                         </select>
                     </div>
                     <input type="text" id="queryPDF" placeholder="Type your question about the PDF/s">
-                    <button id="askPDFButton" onclick="askPDF()">Submit</button>
+                    <button id="askPDFButton" onclick="askPDF('pdf')">Submit</button>
                     <div id="queryResponseContainer" class="response-container">
-                        <div id="queryResponse" class="response">
+                        <div id="queryResponse_pdf" class="response">
                             <!-- Response content goes here -->
                         </div>
                         <div class="resize-handle"></div>
@@ -58,6 +58,23 @@
                     <button onclick="clearChatHistory()" style="margin-top: 10px;">Clear Chat History</button>
                     <span style="margin-left: 10px;"></span>
                     <span id="chatHistoryStatus" class="status-message"></span>
+                </div>
+            </div>
+        </div>
+        <div class="section-group"></div>
+            <div class="card section">
+                <div class="query-section">
+                    <h2>Ask Normal Splitter</h2>
+                    <p>Submit your questions to Normal Text Splitter</p>
+                    <input type="text" id="query" placeholder="Type your question here to the AI model without PDF">
+                    <button id="askSplitterButton" onclick="askPDF('splitter')">Submit</button>
+                    <button onclick="copyTextAndSubmit('splitter')">Copy Prompt from ASKPDF & Submit</button>
+                    <div id="queryResponseContainerSplitter" class="response-container">
+                        <div id="queryResponse_splitter" class="response">
+                            <!-- Response content goes here -->
+                        </div>
+                        <div class="resize-handle"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -69,7 +86,7 @@
                     <p>Submit your questions to Ollama3.1 AI model with no embedding from PDFs. I would use this mostly to compare answers</p>
                     <input type="text" id="query" placeholder="Type your question here to the AI model without PDF">
                     <button id="askAIButton" onclick="askAI()">Submit</button>
-                    <button onclick="copyTextAndSubmit()">Copy Prompt from ASKPDF & Submit</button>
+                    <button onclick="copyTextAndSubmit('ai')">Copy Prompt from ASKPDF & Submit</button>
                     <div id="queryResponseContainerAI" class="response-container">
                         <div id="queryResponseAI" class="response">
                             <!-- Response content goes here -->

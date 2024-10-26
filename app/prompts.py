@@ -131,7 +131,7 @@ PROMPTS = {
         Context: {context}
         """
     ),
-    "GEC_PROMPT": PromptTemplate.from_template(
+    "GEC Main Points": PromptTemplate.from_template(
         """
     <s>[INST] You are an AI assistant specializing in analyzing the given chunk of context. Your task is to synthesize the provided context into 3 main points, each with a 3-sentence detailed explanation.
 

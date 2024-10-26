@@ -22,10 +22,13 @@ async function apiRequest(url, options = {}) {
 }
 
 // Function to copy text from PDF field and submit to AI
-async function copyTextAndSubmit() {
+async function copyTextAndSubmit(where) {
     const pdfText = document.getElementById('queryPDF').value;
     document.getElementById('query').value = pdfText;
-    await askAI(); // Call askAI directly since it's defined in this file
+    if (where === 'ai')
+        await askAI(); // Call askAI directly since it's defined in this file
+    else
+        await askPDF(where); //Call Splitter
 }
 
 // Function to ask AI a question
@@ -55,11 +58,13 @@ async function askAI() {
 }
 
 // Function to ask about PDF
-async function askPDF() {
+async function askPDF(which) {
     console.log('askPDF called'); // Debug log
     const query = document.getElementById('queryPDF').value;
-    const responseDiv = document.getElementById('queryResponse');
+    const responseDiv = document.getElementById('queryResponse_' + which);
     const promptType = document.getElementById('promptType').value;
+    const querySource = which;
+
 
     if (!responseDiv) {
         console.error('Element with ID "queryResponse" is missing.');
@@ -78,7 +83,7 @@ async function askPDF() {
         const result = await apiRequest('/ask_pdf', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, promptType }),
+            body: JSON.stringify({ query, promptType, querySource }),
         });
 
         console.log('API response received:', result); // Debug log
@@ -107,7 +112,7 @@ function displayPDFUsage(pdfUsage) {
         return;
     }
 
-    usageDiv.innerHTML += '<ul>' + Object.entries(pdfUsage).map(([pdf, data]) => 
+    usageDiv.innerHTML += '<ul>' + Object.entries(pdfUsage).map(([pdf, data]) =>
         `<li>${pdf}: ${data.count} queries (${data.percentage.toFixed(2)}%)</li>`
     ).join('') + '</ul>';
 }
@@ -122,7 +127,7 @@ function displayQueryUsage(queryUsage) {
         return;
     }
 
-    usageDiv.innerHTML += '<ul>' + Object.entries(queryUsage).map(([pdf, data]) => 
+    usageDiv.innerHTML += '<ul>' + Object.entries(queryUsage).map(([pdf, data]) =>
         `<li>${pdf}: ${data.count} queries (${data.percentage.toFixed(2)}%)</li>`
     ).join('') + '</ul>';
 }
@@ -152,7 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const queryPDFInput = document.getElementById('queryPDF');
     const queryPDFButton = document.getElementById('askPDFButton');
     if (queryPDFInput && queryPDFButton) {
-        queryPDFInput.addEventListener('keypress', function(event) {
+        queryPDFInput.addEventListener('keypress', function (event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
                 queryPDFButton.click();
@@ -162,10 +167,23 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('queryPDFInput or queryPDFButton is missing'); // Debug log
     }
 
+    const querySplitterInput = document.getElementById('query');
+    const querySplitterButton = document.getElementById('askSplitterButton');
+    if (querySplitterInput && querySplitterButton) {
+        querySplitterInput.addEventListener('keypress', function (event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                querySplitterButton.click();
+            }
+        });
+    } else {
+        console.log('querySplitterInput or querySplitterButton is missing'); // Debug log
+    }
+
     const queryInput = document.getElementById('query');
     const queryButton = document.getElementById('askAIButton');
     if (queryInput && queryButton) {
-        queryInput.addEventListener('keypress', function(event) {
+        queryInput.addEventListener('keypress', function (event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
                 queryButton.click();

@@ -30,6 +30,8 @@ bp = Blueprint('main', __name__)
 
 # Folder paths
 folder_path = "data/db"
+normal_path = "data/text_splitter"
+
 pdf_dir = "data/pdf"
 
 # Path to the PDF directory for viewing PDFs
@@ -76,10 +78,31 @@ def initialize_vector_store():
         return None
 
 
+def initialize_splitter_vector_store():
+    if not os.path.exists(normal_path):
+        os.makedirs(normal_path)
+    # Perform a test operation to ensure proper initialization
+    try:
+        vector_store = Chroma(persist_directory=normal_path, embedding_function=embedding)
+        # Example check to validate database
+        if not vector_store.get():
+            print("Vector store is empty or not properly initialized.")
+            # Additional initialization steps if needed
+        return vector_store
+    except Exception as e:
+        print(f"Error initializing vector store: {str(e)}")
+        return None
+
+
 initialize_vector_store()
+initialize_splitter_vector_store()
+
 
 if not os.path.exists(folder_path):
     print(f"Error: Directory {folder_path} does not exist.")
+
+if not os.path.exists(normal_path):
+    print(f"Error: Directory {normal_path} does not exist.")
 
 
 def file_exists(file_path):
@@ -97,6 +120,9 @@ def compute_file_hash(file):
 
 if not os.path.exists(folder_path):
     os.makedirs(folder_path)
+
+if not os.path.exists(normal_path):
+    os.makedirs(normal_path)
 
 if not os.path.exists(pdf_dir):
     os.makedirs(pdf_dir)
@@ -137,8 +163,11 @@ def pdfManagement():
         vector_store = Chroma(persist_directory="data/db", embedding_function=embedding)
         db_data = vector_store.get()
         document_count = len(db_data.get("metadatas", []))
+        splitter_store = Chroma(persist_directory="data/text_splitter", embedding_function=embedding)
+        splitter_data = splitter_store.get()
+        splitter_count = len(splitter_data.get("metadatas", []))
 
-        return render_template("pdfManagement.html", pdf_count=len(pdf_files), doc_count=document_count)
+        return render_template("pdfManagement.html", pdf_count=len(pdf_files), doc_count=document_count, splitter_count=splitter_count)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -171,12 +200,14 @@ def askPDFPost():
     json_content = request.json
     query = json_content.get("query")
     prompt_type = json_content.get("promptType")  # Get the prompt type
+    query_source = json_content.get("querySource")
 
     if not query:
         return jsonify({"error": "No 'query' found in JSON request"}), 400
 
     print(f"**query**: {query}")
     print(f"**prompt_type**: {prompt_type}")
+    print(f"**query_source**: {query_source}")
 
     # Dynamically select the prompt based on prompt_type
     prompt = PROMPTS.get(prompt_type)
@@ -184,8 +215,11 @@ def askPDFPost():
         return jsonify({"error": "Unknown prompt type"}), 400
 
     try:
-        print("Loading vector store")
-        vector_store = Chroma(persist_directory=folder_path, embedding_function=embedding)
+        vector_path = folder_path if query_source == 'pdf' else normal_path
+
+        print(f"Loading vector store: {vector_path}")
+
+        vector_store = Chroma(persist_directory=vector_path, embedding_function=embedding)
         db_data = vector_store.get()
 
         if not db_data.get("metadatas"):
@@ -300,6 +334,9 @@ def clear_db():
         global vector_store
         vector_store = initialize_vector_store()
 
+        global splitter_store
+        vector_store = initialize_splitter_vector_store()
+
         return jsonify({"status": "Database and files cleared successfully"})
     except Exception as e:
         logging.error(f"Error during clear_db operation: {str(e)}")
@@ -341,6 +378,30 @@ def clear_vector_store():
 
             # Persist changes to the vector store
             vector_store.persist()
+            logging.info("Successfully deleted all documents and persisted changes.")
+        else:
+            logging.info("No documents found in vector store to delete.")
+
+        global splitter_store
+        # Initialize the vector store
+        splitter_store = Chroma(persist_directory=normal_path, embedding_function=embedding)
+
+        # Get all document IDs from the vector store
+        db_data = vector_store.get()  # Get the data from the vector store
+        ids = db_data.get("ids", [])
+
+        # Log the number of documents found
+        logging.info(f"Found {len(ids)} documents in splitter store")
+
+        if ids:
+            # Delete all documents by their IDs
+            for doc_id in ids:
+                if doc_id:
+                    splitter_store.delete(doc_id)
+                    logging.info(f"Deleted document with ID: {doc_id}")
+
+            # Persist changes to the vector store
+            splitter_store.persist()
             logging.info("Successfully deleted all documents and persisted changes.")
         else:
             logging.info("No documents found in vector store to delete.")
@@ -428,6 +489,13 @@ def pdfPost():
         text_chunks = text_splitter.split_documents(docs)
         for chunk in text_chunks:
             chunk.metadata = {"source": file_name}
+        global splitter_store
+        # Initialize the vector store
+        splitter_store = Chroma.from_documents(
+            documents=text_chunks, embedding=embedding, persist_directory=normal_path
+        )
+        print("Initialized Splitter store !!")
+
         from semantic_router.encoders import OpenAIEncoder
         encoder = OpenAIEncoder(name="text-embedding-3-small")
         chunker = StatisticalChunker(encoder=encoder, max_split_tokens=4096)
@@ -553,6 +621,42 @@ def delete_pdf():
             # Persist changes to the vector store
             vector_store.persist()
             print(f"Successfully deleted documents and persisted changes.")
+
+        else:
+            print(f"No documents found for source: {path_pattern}")
+            return jsonify({"status": "No documents found for the provided file name"}), 404
+
+        # Remove the PDF references from the vector store
+        splitter_store = Chroma(persist_directory=folder_path, embedding_function=embedding)
+
+        # Get all documents from the vector store
+        db_data = splitter_store.get()  # Get the data from the vector store
+        print(f"db_data: {db_data}")
+        metadatas = db_data.get("metadatas", [])
+        ids = db_data.get("ids", [])
+
+        # Log the number of documents and sample metadata
+        print(f"Found {len(metadatas)} documents in vector store")
+        if metadatas:
+            print(f"Sample metadata: {metadatas[0]}")
+
+        # Find and delete documents with the matching source path
+        docs_to_delete = [id for id, metadata in zip(ids, metadatas) if metadata.get(
+            "source").strip().lower() == path_pattern.strip().lower()]
+        print(f"Documents to delete: {docs_to_delete}")
+
+        if docs_to_delete:
+            for doc_id in docs_to_delete:
+                if doc_id is None:
+                    print("Encountered None as doc_id, skipping deletion.")
+                    continue
+                print(f"Deleting document with ID: {doc_id}")
+                splitter_store.delete(doc_id)
+
+            # Persist changes to the vector store
+            splitter_store.persist()
+            print(f"Successfully deleted documents and persisted changes.")
+
         else:
             print(f"No documents found for source: {path_pattern}")
             return jsonify({"status": "No documents found for the provided file name"}), 404
