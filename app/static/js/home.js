@@ -50,7 +50,7 @@ async function askAI() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query }),
         });
-
+        console.log(result);
         responseDiv.innerHTML = `<p>${await markdownToHTML(result.answer) || result.error}</p>`;
     } catch (error) {
         responseDiv.innerHTML = `<p>An error occurred while processing the query: ${error.message}</p>`;

@@ -43,7 +43,7 @@ query_usage_count = {}
 chat_history = []
 
 # Initialize the Ollama model
-# cached_llm = Ollama(model="llama3.1")
+# cached_llm = Ollama(model="llama3.2")
 cached_llm = ChatOpenAI(
     model_name="gpt-4o-mini",  # or "gpt-4" if you have access
     temperature=0.7,
@@ -236,7 +236,7 @@ def askPDFPost():
             search_type="similarity_score_threshold",
             search_kwargs={
                 "k": 20,
-                "score_threshold": 0.1,
+                "score_threshold": 0.5,
             },
         )
 
